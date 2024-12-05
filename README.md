@@ -14,13 +14,9 @@ This implementation supports parameter estimation using Variational Expectation-
 
 ```
 📁 LatentTopicBlockModel/ 
-
 │ ├── 📁 src/ # Source code 
-
 │ ├── Compute_Lower_Bound.R # Calculates the Evidence Lower Bound (ELBO) 
-
 │ ├── Connection_Functions.R # Manages connections and interaction matrices
-
 | ├── Environnement_Initialization.R # Sets up the LTBM environment
 | ├── Graph_functions.R # Visualization and graph-related utilities
 | ├── Greedy_Search.R # Implements greedy search optimization
