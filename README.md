@@ -80,6 +80,7 @@ Clone the repository:
    git clone https://github.com/yourusername/LatentTopicBlockModel.git
    cd LatentTopicBlockModel
    ```
+---
 ### **Usage**
 1. **Synthetic Data generation**
    To generate synthetic data and test the LTBM:
@@ -108,3 +109,24 @@ Clone the repository:
    ```r
    plot_connection_density_with_topics_overlay(A, row_clusters, col_clusters, Q, L, theta, topic_colors)
    ```
+---
+### **Documentation**
+Detailed documentation and examples are provided in `docs/SyntheticData.Rmd`.
+This file includes:
+* Generating synthetic data.
+* Running the LTBM optimization.
+* Visualizing and analyzing results.
+
+---
+
+### Authors
+
+*Mohamed Badi* (mohamed.badi@etu-upsaclay.fr) and *Malek Bouzidi* (malek.bouzidi@etu-upsaclay.fr). 
+
+
+### Contributing
+
+Please feel free to submit a pull request if you'd like to add improvements or fix issues. All contributions are welcome!
+
+### License
+This project is licensed under the MIT License.
