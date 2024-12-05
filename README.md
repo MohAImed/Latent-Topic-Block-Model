@@ -12,7 +12,7 @@ This implementation supports parameter estimation using Variational Expectation-
 
 ## **Repository Structure**
 
-
+```
 📁 LatentTopicBlockModel/ 
 
 │ ├── 📁 src/ # Source code 
@@ -35,7 +35,7 @@ This implementation supports parameter estimation using Variational Expectation-
 ├── LICENSE # Licensing information 
 ├── README.md # This README file 
 └── .gitignore # Ignored files for version control
-
+```
 
 ---
 
