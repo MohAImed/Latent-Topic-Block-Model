@@ -30,7 +30,6 @@ This implementation supports parameter estimation using Variational Expectation-
 | └── README.md # Instructions for working with datasets 
 ├── LICENSE # Licensing information 
 ├── README.md # This README file 
-└── .gitignore # Ignored files for version control
 ```
 
 ---
