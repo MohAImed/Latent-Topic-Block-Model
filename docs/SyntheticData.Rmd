@@ -1,0 +1,584 @@
+---
+title: "Latent Topic Block Model"
+author: "Mohamed Malek"
+date: "2024-11-27"
+output: html_document
+---
+
+# Testing the Latent Topic Bolck Model on Sythetic data
+
+```{r}
+source("Utils/Graph_functions.R")
+```
+
+## 1. Generating synthetic connections
+
+```{r}
+generate_synthetic_connections <- function(M,P,Q,L,high_prob,low_prob){
+  set.seed(42)
+  
+  # Step 1: Assign clusters
+  row_clusters <- sample(1:Q, M, replace = TRUE)
+  col_clusters <- sample(1:L, P, replace = TRUE)
+  
+  # Step 2: Define interaction probabilities (pi_ql)
+  pi <- matrix(low_prob, nrow = Q, ncol = L)
+  diag(pi) <- high_prob
+  
+  # Step 3: Generate incidence matrix 
+  A <- matrix(0, nrow = M, ncol = P) ## pi_ql it depends from the pair (q,l)
+  for (i in 1:M){
+    for(j in 1:P){
+      prob <- pi[row_clusters[i], col_clusters[j]]
+      A[i,j] <- rbinom(1,1,prob)
+    }
+  }
+  
+  return(list(A = A, row_clusters = row_clusters, col_clusters = col_clusters, pi = pi))
+}
+
+# Generate an incidence matrix of M rows, P columns, Q Row clusters, and L Columns clusters
+
+M <- 100
+P <- 80
+Q <- 4
+L <- 3
+
+connections <- generate_synthetic_connections(M,P,Q,L, high_prob = 0.3, low_prob = 0.02)
+A <- connections$A
+
+## Let's plot connection density using the funcoin
+plot_connection_density(connections$A, connections$row_clusters, connections$col_clusters, Q,L)
+```
+
+## 2. We define Synthetic Vocabulary and Topics
+
+We choose tree distinct topics from which we will sample words:
+
+-   **Topic 1**: Astrophysics
+-   **Topic 2**: Sport
+-   **Topic 3**: Politics
+
+```{r}
+## HERE WE DEFINE THREE TOPICS: ASTROPHYSICS, SPORT, POLITICS
+topic_1 <- c("black", "hole", "gravity", "star", "galaxy", "universe", "space", "research", "astrophysics", "cosmos")
+topic_2 <- c("goal", "match", "player", "team", "score", "coach", "league", "referee", "stadium", "victory")
+topic_3 <- c("election", "policy", "minister", "government", "vote", "campaign", "parliament", "debate", "prime", "leader")
+
+## CREATE THE CORRESPONDING VOCABULARY
+vocab <- unique(c(topic_1, topic_2, topic_3))
+V <- length(vocab)  ## Number of words
+K <- 3              ## Number of topics
+
+## CREATE A MATRIX BETA FOR WORD DISTRIBUTION ACROSS TOPICS
+## ATTENTION: BETA SHOULD BE STRICTLY POSTIVE
+beta <- matrix(0.05, nrow = 3, ncol = length(vocab))
+colnames(beta) <- vocab
+
+## WE CHOOSE A UNIFORM DISTRIBUTION OF WORDS ACROSS TOPICS (ANY WORD OUTSIDE THE TOPIC WILL A ZERO PROBABILITY)
+beta[1, match(topic_1, vocab)] <- 1
+beta[2, match(topic_2, vocab)] <- 1
+beta[3, match(topic_3, vocab)] <- 1
+beta <- beta / rowSums(beta)  # Normalize each row to sum to 1
+```
+
+### Presenting topics
+
+```{r}
+# Vos données pour les trois topics
+topic_1 <- c("black", "hole", "gravity", "star", "galaxy", "universe", "space", "research", "astrophysics", "cosmos")
+topic_2 <- c("goal", "match", "player", "team", "score", "coach", "league", "referee", "stadium", "victory")
+topic_3 <- c("election", "policy", "minister", "government", "vote", "campaign", "parliament", "debate", "prime", "leader")
+
+# Combiner les données dans un dataframe
+data <- data.frame(
+  Words = c(topic_1, topic_2, topic_3),
+  Topic = factor(c(rep("Topic 1", length(topic_1)), 
+                   rep("Topic 2", length(topic_2)), 
+                   rep("Topic 3", length(topic_3)))),
+  Y = c(10:1, 10:1, 10:1) # Position verticale inversée pour mieux centrer
+)
+
+# Créer le graphique vide
+plot(as.numeric(data$Topic), data$Y, type = "n", 
+     xlab = "", ylab = "", xaxt = "n", yaxt = "n", 
+     main = "Mots associés à chaque Topic", 
+     xlim = c(0.5, 3.5), ylim = c(0.5, 10.5)) # Ajuster les marges
+
+# Ajouter les mots, légèrement ajustés pour centrer
+text(as.numeric(data$Topic), data$Y, labels = data$Words, 
+     col = c(rep("blue", length(topic_1)), rep("green", length(topic_2)), rep("red", length(topic_3))),
+     cex = 1.1) # Ajuster la taille du texte
+
+# Ajouter les noms des topics sur l'axe X, centré
+axis(1, at = 1:length(levels(data$Topic)), labels = levels(data$Topic), cex.axis = 1.1)
+```
+
+## 3. We Generate Topic Distributions ($\theta$)
+
+For each cluster pair $(q,l)$ we generate a main topic. This is equivalent to set a high probability entry in the $\theta_{ql}$ for the main topic
+
+```{r}
+generate_theta <- function(Q,L,K){
+  set.seed(42)
+  
+  theta <- array(0, dim = c(Q, L, K))
+  for (q in 1:Q){
+    for (l in 1:L){
+      main_topic <- sample(1:K, 1) # Assign a main topic for each cluster pair
+      theta[q,l,] <- runif(K, 0.01, 0.1)
+      theta[q,l,main_topic] <- theta[q,l, main_topic] + 1 # Boost the main topic
+      theta[q,l,] <- theta[q,l,] /sum(theta[q,l,]) # Normalise
+    }
+  }
+  return(theta)
+}
+
+# Generate theta for Q=4, L=3, K=3
+K <- 3
+theta <- generate_theta(Q,L,K)
+```
+
+```{r}
+plot_connection_density_with_topics_overlay(connections$A, connections$row_clusters, connections$col_clusters, Q, L,theta, topic_colors)
+
+```
+
+## 4. We generate synthetic documents
+
+```{r}
+
+generate_corpus <- function(A, theta, beta, row_clusters, col_clusters, mean_docs = 3, mean_words = 50) {
+  set.seed(42)
+  
+  M <- nrow(A)
+  P <- ncol(A)
+  corpus <- list()
+  
+  for (i in 1:M) {
+    for (j in 1:P) {
+      if (A[i, j] == 1) {  # Interaction exists
+        D_ij <- rpois(1, mean_docs) + 1  # Number of documents
+        interaction_docs <- list()
+        
+        for (d in 1:D_ij) {
+          N_ij_d <- rpois(1, mean_words) + 1  # Number of words
+          Z_ij_d <- sample(1:K, N_ij_d, replace = TRUE, prob = theta[row_clusters[i], col_clusters[j], ])
+          W_ij_d <- sapply(Z_ij_d, function(z) sample(1:length(vocab), 1, prob = beta[z, ]))
+          interaction_docs[[d]] <- W_ij_d
+        }
+        corpus[[paste(i, j, sep = ",")]] <- interaction_docs
+      }
+    }
+  }
+  return(corpus)
+}
+
+# Generate corpus
+corpus <- generate_corpus(connections$A, theta, beta, connections$row_clusters, connections$col_clusters)
+
+# Display a sample of documents
+sample_docs <- head(corpus, 3)
+for (interaction in names(sample_docs)) {
+  cat("Interaction:", interaction, "\n")
+  for (d in 1:length(sample_docs[[interaction]])) {
+    cat("Document", d, ":", paste(sample_docs[[interaction]][[d]], collapse = " "), "\n")
+  }
+  cat("\n")
+}
+
+```
+
+## The Latent Topic Model for Sythetic data
+
+```{r}
+#RUN THIS BLOCK OF CODE TO INITIALIZE THE ENVIRONNEMENT
+source("Utils/Environnement_Initialization.R")
+
+#WE INITIALLY INITIALIZE USING THE TRUE CLUSTERS
+
+initialize_environment(connections$A,connections$row_clusters,connections$col_clusters,corpus,K,V)
+```
+
+```{r}
+LTBM(epsilon = 1e-3, max_iter = 2)
+```
+
+## The idea is to regenerate Incidence matrix from the calibrated data
+
+```{r}
+regenerate_connections <- function(row_clusters, col_clusters, pi) {
+  M <- length(row_clusters)
+  P <- length(col_clusters)
+  A_regenerated <- matrix(0, nrow = M, ncol = P)
+  
+  for (i in 1:M) {
+    for (j in 1:P) {
+      q <- row_clusters[i]
+      l <- col_clusters[j]
+      A_regenerated[i, j] <- rbinom(1, 1, pi[q, l])
+    }
+  }
+  return(A_regenerated)
+}
+
+# Regenerate the connections
+A_regenerated <- regenerate_connections(
+  LTBM_env$Y, LTBM_env$X, LTBM_env$pi
+)
+```
+
+```{r}
+reorganize_by_clusters <- function(A, row_clusters, col_clusters) {
+  # Order rows and columns by clusters
+  row_order <- order(row_clusters)
+  col_order <- order(col_clusters)
+  
+  A_reorganized <- A[row_order, col_order]
+  return(list(A_reorganized = A_reorganized, row_order = row_order, col_order = col_order))
+}
+
+# Reorganize the regenerated connections
+reorganized <- reorganize_by_clusters(A_regenerated, LTBM_env$Y, LTBM_env$X)
+A_reorganized <- reorganized$A_reorganized
+```
+
+```{r}
+plot_reorganized_incidence_matrix <- function(A, row_clusters, col_clusters, Q, L) {
+  # Step 1: Reorganize rows and columns by their cluster assignments
+  row_order <- order(row_clusters)  # Order rows by cluster assignments
+  col_order <- order(col_clusters)  # Order columns by cluster assignments
+  reordered_A <- A[row_order, col_order]  # Reorganize the incidence matrix
+  
+  # Step 2: Compute cluster boundaries
+  # Determine where clusters start and end
+  row_bounds <- cumsum(table(factor(row_clusters, levels = 1:Q)))  # Row cluster boundaries
+  col_bounds <- cumsum(table(factor(col_clusters, levels = 1:L)))  # Column cluster boundaries
+  
+  # Step 3: Prepare dimensions for image()
+  x <- seq(1, ncol(reordered_A) + 1)  # x-coordinates for columns
+  y <- seq(1, nrow(reordered_A) + 1)  # y-coordinates for rows
+  z <- reordered_A  # The matrix to visualize, already reordered
+  
+  # Step 4: Plot the reordered incidence matrix
+  image(
+    x - 0.5, y - 0.5, t(z),  # Use transpose to align with image()'s plotting convention
+    col = c("white", "black"),  # White for 0, black for 1
+    axes = FALSE,  # Hide axes (custom ones will be added later)
+    main = "Reorganized regenerated Incidence Matrix",  # Title of the plot
+    xlab = "Column-Clusters (Objects)",  # x-axis label
+    ylab = "Row-Clusters (Individuals)"  # y-axis label
+  )
+  
+  # Step 5: Overlay grid lines for cluster boundaries
+  par(xpd = FALSE)  # Ensure grid lines are drawn within the plot region
+  for (r in row_bounds[-length(row_bounds)]) {
+    abline(h = r + 0.5, col = "red", lwd = 2)  # Horizontal grid line for row boundaries
+  }
+  for (c in col_bounds[-length(col_bounds)]) {
+    abline(v = c + 0.5, col = "blue", lwd = 2)  # Vertical grid line for column boundaries
+  }
+  
+  # Step 6: Annotate cluster boundaries
+  # Add cluster labels along the axes
+  axis(1, at = col_bounds - 0.5, labels = 1:L, tick = FALSE, las = 1)  # Column cluster labels
+  axis(2, at = row_bounds - 0.5, labels = 1:Q, tick = FALSE, las = 2)  # Row cluster labels
+}
+
+# Example Usage
+# Assuming A, row_clusters, col_clusters, Q, and L are predefined
+# A: Incidence matrix
+# row_clusters: Cluster assignments for rows
+# col_clusters: Cluster assignments for columns
+# Q: Number of row clusters
+# L: Number of column clusters
+plot_reorganized_incidence_matrix(A_regenerated, LTBM_env$Y, LTBM_env$X, Q, L)
+
+```
+
+```{r}
+define_topic_colors <- function(K) {
+  # Generate a distinct color for each topic
+  topic_colors <- c("blue", "green", "red")
+  names(topic_colors) <- seq_len(K)  # Map colors to topics
+  return(topic_colors)
+}
+
+# Example: For K topics
+K <- 3  # Number of topics
+topic_colors <- define_topic_colors(K)
+```
+
+```{r}
+generate_word_topics <- function(corpus, phi, topic_colors) {
+  word_topics <- list()
+  
+  for (key in names(corpus)) {
+    interaction_docs <- corpus[[key]]
+    phi_docs <- phi[[key]]
+    
+    interaction_topics <- list()
+    for (d in seq_along(interaction_docs)) {
+      words <- interaction_docs[[d]]
+      phi_doc <- phi_docs[[d]]  # Variational distribution for this document
+      
+      # Sample a topic for each word based on phi
+      sampled_topics <- apply(phi_doc, 1, function(p) sample(seq_along(p), 1, prob = p))
+      interaction_topics[[d]] <- list(words = words, topics = sampled_topics)
+    }
+    word_topics[[key]] <- interaction_topics
+  }
+  
+  return(word_topics)
+}
+
+# Generate topics for words
+word_topics <- generate_word_topics(corpus, LTBM_env$phi, topic_colors)
+head(word_topics,5)
+```
+
+```{r}
+compute_dominant_topics <- function(A, phi, corpus) {
+  dominant_topics <- matrix(0, nrow = nrow(A), ncol = ncol(A))
+  
+  for (key in names(corpus)) {
+    ij <- as.numeric(unlist(strsplit(key, ",")))
+    i <- ij[1]
+    j <- ij[2]
+    
+    # Aggregate topic contributions for all documents in the connection
+    topic_sums <- numeric(dim(phi[[key]][[1]])[2])  # Initialize sums for each topic
+    for (d in seq_along(corpus[[key]])) {
+      topic_sums <- topic_sums + colSums(phi[[key]][[d]])  # Sum over words
+    }
+    
+    # Determine the dominant topic
+    dominant_topics[i, j] <- which.max(topic_sums)
+  }
+  
+  return(dominant_topics)
+}
+
+# Compute dominant topics for all connections
+dominant_topics <- compute_dominant_topics(LTBM_env$A, LTBM_env$phi, corpus)
+```
+
+```{r}
+plot_connection_density_with_topics_overlay <- function(A, row_clusters, col_clusters, Q, L, theta, topic_colors) {
+  # Step 1: Reorganize rows and columns by their cluster assignments
+  row_order <- order(row_clusters)  # Order rows by clusters
+  col_order <- order(col_clusters)  # Order columns by clusters
+  reordered_A <- A[row_order, col_order]
+  
+  # Step 2: Compute cluster boundaries
+  row_bounds <- cumsum(table(factor(row_clusters, levels = 1:Q)))
+  col_bounds <- cumsum(table(factor(col_clusters, levels = 1:L)))
+  
+  # Step 3: Compute dominant topics for each cluster pair
+  dominant_topics <- matrix(NA, nrow = Q, ncol = L)
+  for (q in 1:Q) {
+    for (l in 1:L) {
+      dominant_topics[q, l] <- which.max(theta[q, l, ])  # Find dominant topic
+    }
+  }
+  
+  # Step 4: Plot the base incidence matrix
+  image(
+    1:ncol(reordered_A), 1:nrow(reordered_A), 
+    t(reordered_A[nrow(reordered_A):1, ]),  # Flip vertically
+    col = c("white", "black"), axes = FALSE,
+    main = "Reorganized regenerated Incidence Matrix with Topic Colors", 
+    xlab = "Column-Clusters (Objects)", 
+    ylab = "Row-Clusters (Individuals)"
+  )
+  
+  # Step 5: Superpose topic-colored blocks
+  for (q in 1:Q) {
+    row_start <- ifelse(q == 1, 1, row_bounds[q - 1] + 1)
+    row_end <- row_bounds[q]
+    for (l in 1:L) {
+      col_start <- ifelse(l == 1, 1, col_bounds[l - 1] + 1)
+      col_end <- col_bounds[l]
+      
+      # Get the dominant topic color
+      topic_color <- topic_colors[dominant_topics[q, l]]
+      
+      # Draw a semi-transparent rectangle over the block
+      rect(
+        xleft = col_start - 1, ybottom = nrow(reordered_A) - row_end, 
+        xright = col_end, ytop = nrow(reordered_A) - row_start + 1, 
+        col = adjustcolor(topic_color, alpha.f = 0.2), border = NA
+      )
+    }
+  }
+  
+  # Step 6: Overlay grid lines for cluster boundaries
+  par(xpd = FALSE)
+  for (r in row_bounds[-length(row_bounds)]) {
+    abline(h = nrow(reordered_A) - r, col = "red", lwd = 2)  # Horizontal boundary
+  }
+  for (c in col_bounds[-length(col_bounds)]) {
+    abline(v = c, col = "blue", lwd = 2)  # Vertical boundary
+  }
+  
+  # Step 7: Add axes and labels
+  axis(
+    1, at = col_bounds - 0.5, labels = 1:L, tick = FALSE, las = 1
+  )  # Column cluster labels
+  axis(
+    2, at = nrow(reordered_A) - (row_bounds - 0.5), labels = 1:Q, tick = FALSE, las = 2
+  )  # Row cluster labels (flipped)
+  
+  # Step 8: Add legend
+  # legend(
+  #   "topright", legend = paste("Topic", 1:length(topic_colors)), 
+  #   fill = adjustcolor(topic_colors, alpha.f = 0.2), 
+  #   title = "Topics", cex = 0.8
+  # )
+}
+```
+
+```{r}
+plot_connection_density_with_topics_overlay(A_regenerated, LTBM_env$Y, LTBM_env$X, Q, L, LTBM_env$gamma, topic_colors)
+```
+
+## Analysing the lower bound evolution
+
+```{r}
+lower_bound_matrix <-matrix(LTBM_env$lower_bound_history, nrow = 2, byrow = FALSE)
+
+lower_bound_df <- data.frame(Iterations = 1:ncol(lower_bound_matrix), Greedy_Search_1 = lower_bound_matrix[1,], Greedy_Search_2 = lower_bound_matrix[2,])
+
+# Create the plot
+ggplot(lower_bound_df, aes(x = Iterations, y = Greedy_Search_1)) +
+  geom_line(color = "blue", size = 1) +
+  geom_point(color = "red", size = 1) +
+  labs(
+    title = "Lower Bound Evolution",
+    x = "Iteration",
+    y = "Lower Bound"
+  ) +
+  theme_minimal()
+
+ggplot(lower_bound_df, aes(x = Iterations, y = Greedy_Search_2)) +
+  geom_line(color = "blue", size = 1) +
+  geom_point(color = "red", size = 1) +
+  labs(
+    title = "Lower Bound Evolution",
+    x = "Iteration",
+    y = "Lower Bound"
+  ) +
+  theme_minimal()
+```
+
+# We try different method for initializing $Y$ and $X$ with 5 iterations between CVEM and GreedySearch
+
+```{r}
+source("Utils/Initialization_Methods.R")
+```
+
+## Random initialization
+
+```{r}
+rand_Y_X <- random_initialization(M = nrow(connections$A), P = ncol(connections$A), Q = 4, L = 3)
+initialize_environment(connections$A,rand_Y_X$Y,rand_Y_X$X,corpus,K,V)
+LTBM(epsilon = 1e-2, max_iter = 5) ## Epsilon 1e-2 and max_iter 5
+Random_Init_Iter_5 <- LTBM_env$lower_bound_history
+```
+
+## K-means
+
+```{r}
+K_means_Y_X <- kmeans_initialization(connections$A, Q = 4, L = 3)
+initialize_environment(connections$A, K_means_Y_X$Y, K_means_Y_X$X, corpus, K,V)
+LTBM(epsilon = 1e-2, max_iter = 5) 
+K_means_Init_Iter_5 <- LTBM_env$lower_bound_history
+```
+
+## LBM
+
+```{r}
+LBM_Y_X <- lbm_initialization(connections$A)
+initialize_environment(connections$A, LBM_Y_X$Y, LBM_Y_X$X, corpus, K, V)
+LTBM(epsilon = 1e-2, max_iter = 5)
+LBM_Init_Iter_5 <- LTBM_env$lower_bound_history
+```
+
+## LET'S ANALYSE THE OUTPUT SEPARATELY
+
+```{r}
+max_iter <- 20
+
+# Récupérer les historiques de la borne inférieure
+lower_bounds_random <- Random_Init_Iter_5[1:max_iter]
+lower_bounds_kmeans <- K_means_Init_Iter_5[1:max_iter]
+lower_bounds_lbm <-    LBM_Init_Iter_5[1:max_iter]
+
+# Combiner dans un data frame
+comparison_data <- data.frame(
+Iteration = 1:max_iter,
+Random = lower_bounds_random,
+KMeans = lower_bounds_kmeans,
+LBM = lower_bounds_lbm
+)
+
+# Transformer les données au format long pour ggplot
+library(tidyr)
+comparison_data_long <- pivot_longer(
+comparison_data,
+cols = c("Random", "KMeans", "LBM"),
+names_to = "Initialization",
+values_to = "LowerBound"
+)
+
+# Tracer avec ggplot
+library(ggplot2)
+ggplot(comparison_data_long, aes(x = Iteration, y = LowerBound, color = Initialization)) +
+geom_line(size = 1) +
+geom_point(size = 2, alpha = 0.6) +
+labs(
+  title = "Évolution de la Borne Inférieure selon les Méthodes d'Initialisation",
+  x = "Itération",
+  y = "Borne Inférieure",
+  color = "Initialisation"
+) +
+theme_minimal(base_size = 15) +
+theme(
+  plot.title = element_text(hjust = 0.5, size = 16),
+  axis.title.x = element_text(size = 14),
+  axis.title.y = element_text(size = 14)
+)
+```
+
+```{r}
+lower_bound_LBM <-matrix(LBM_Init_Iter_5$lower_bound_history, nrow = 5, byrow = FALSE)
+
+lower_bound_df <- data.frame(Iterations = 1:ncol(lower_bound_LBM), Greedy_Search_1 = lower_bound_LBM[1,], Greedy_Search_2 = lower_bound_LBM[4,])
+
+# Create the plot
+ggplot(lower_bound_df, aes(x = Iterations, y = Greedy_Search_1)) +
+  geom_line(color = "blue", size = 1) +
+  geom_point(color = "red", size = 1) +
+  labs(
+    title = "Lower Bound Evolution",
+    x = "Iteration",
+    y = "Lower Bound"
+  ) +
+  theme_minimal()
+
+ggplot(lower_bound_df, aes(x = Iterations, y = Greedy_Search_2)) +
+  geom_line(color = "blue", size = 1) +
+  geom_point(color = "red", size = 1) +
+  labs(
+    title = "Lower Bound Evolution",
+    x = "Iteration",
+    y = "Lower Bound"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+length(K_means_Init_Iter_5) 
+length(LBM_Init_Iter_5)
+length(Random_Init_Iter_5)
+```
