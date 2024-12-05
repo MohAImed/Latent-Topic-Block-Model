@@ -1,6 +1,6 @@
 ---
 title: "Latent Topic Block Model"
-author: "Mohamed Malek"
+author: "Mohamed et Malek"
 date: "2024-11-27"
 output: html_document
 ---
