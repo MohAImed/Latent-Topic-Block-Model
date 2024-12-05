@@ -118,6 +118,34 @@ This file includes:
 
 ---
 
+## **Results**
+
+The LTBM model was applied to synthetic datasets to validate its functionality and performance. Below are key findings and visualizations:
+
+### **Cluster Assignments**
+- Rows and columns of the incidence matrix were successfully grouped into clusters, revealing latent structures.
+- Example plot:
+  
+  ![Cluster Assignments](docs/images/cluster_assignments.png)
+
+---
+
+### **Topic Overlays**
+- Dominant topics for each cluster pair were identified and visualized, confirming the alignment between generated and inferred topic distributions.
+- Example plot:
+  
+  ![Topic Overlays](docs/images/topic_overlays.png)
+
+---
+
+### **Comparison of Initialization Methods**
+- Initialization methods (Random, K-means, LBM) were compared using ELBO evolution.
+- Example plot:
+  
+  ![Initialization Comparison](docs/images/initialization_comparison.png)
+
+
+---
 ### Authors
 
 *Mohamed Badi* (mohamed.badi@etu-upsaclay.fr) and *Malek Bouzidi* (malek.bouzidi@etu-upsaclay.fr). 
