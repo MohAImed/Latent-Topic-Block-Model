@@ -85,7 +85,7 @@ Clone the repository:
    To generate synthetic data and test the LTBM:
    ```r
    source("src/Connection_Functions.R")
-    connections <- generate_connection_matrix(M = 100, P = 80, Q = 4, L = 3, high_prob = 0.3,                     low_prob = 0.02)
+    connections <- generate_connection_matrix(M = 100, P = 80, Q = 4, L = 3, high_prob = 0.3,low_prob = 0.02)
 
    ```
 2. **Initialize the Model Environment**
@@ -126,7 +126,7 @@ The LTBM model was applied to synthetic datasets to validate its functionality a
 - Rows and columns of the incidence matrix were successfully grouped into clusters, revealing latent structures.
 - Example plot:
   
-  ![Cluster Assignments](docs/images/cluster_assignments.png)
+  ![Cluster Assignments](docs/Initial_Data.png)
 
 ---
 
@@ -134,7 +134,7 @@ The LTBM model was applied to synthetic datasets to validate its functionality a
 - Dominant topics for each cluster pair were identified and visualized, confirming the alignment between generated and inferred topic distributions.
 - Example plot:
   
-  ![Topic Overlays](docs/images/topic_overlays.png)
+  ![Topic Overlays](docs/Initial_Data_With_Topics.png)
 
 ---
 
@@ -142,7 +142,7 @@ The LTBM model was applied to synthetic datasets to validate its functionality a
 - Initialization methods (Random, K-means, LBM) were compared using ELBO evolution.
 - Example plot:
   
-  ![Initialization Comparison](docs/images/initialization_comparison.png)
+  ![Initialization Comparison](docs/Intialization_Methods.png)
 
 
 ---
